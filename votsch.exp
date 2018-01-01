@@ -1,0 +1,116 @@
+#!/usr/bin/expect -f
+
+set ::analog [list 0 0 0 0 0 0 0 0 0 0 0]
+set ::digital [list 0 0 0 0 0 0 0 0 0 0 0]
+
+log_user 1
+
+proc updateTmp {
+            } {
+    set nominal [lindex $::analog 0]
+    set actual [lindex $::analog 1]
+    set diff [expr $nominal - $actual]
+    set change 0.0
+    if {$diff > 0.0 } {
+        set change 0.5
+        after 10000 updateTmp
+    }
+    if {$diff < 0.0 } {
+        set change -0.5
+        after 10000 updateTmp
+    }
+    set actual [expr $actual + $change]
+    set ::analog [lreplace $::analog 1 1 $actual]
+}
+
+proc setValue {
+               line
+           } {
+    set values [split [string trim $line] " "]
+    send_user "values ::\n"
+    foreach value $values {
+        send_user "$value\n"
+    }
+    set nominal [lindex $values 1]
+    set ::analog [lreplace $::analog 0 0 $nominal]
+    send_user "analog: $::analog\n"
+    updateTmp
+}
+
+proc status {
+         } {
+    set resp ""
+    for {set i 0} {$i < [llength $::analog]} {incr i} {
+        append resp [format "%06.1f "  [lindex $::analog $i]]
+    }
+    for {set i 0} {$i < [llength $::digital]} {incr i} {
+        append resp [format "%d"  [lindex $::digital $i]]
+    }
+    return "$resp\r"
+}
+
+proc statusCmd {
+            } {
+    send_user [status]\n
+}
+
+proc setCmd {
+             args
+         } {
+    send_user "$args\n"
+    set values [lindex $args 0]
+    set value [lindex $values 0]
+    set index [lindex $values 1]
+    set ::analog [lreplace $::analog $index $index $value]
+}
+
+proc userCmd {
+              input
+          } {
+    set parsed [split [string trim $input] " "]
+    set cmd [lindex $parsed 0]
+    switch $cmd {
+        "SET" {
+            setCmd [lrange $parsed 1 end]
+        }
+        "STATUS" {
+            statusCmd
+        }
+    }
+ 
+}
+
+proc input {
+            id
+            control
+        } {
+    send_user "input: $id $control\n"
+    set timeout -1
+    expect {
+        -i $id
+        -re {\x24\x30\x30I[\r\n]} {
+            send -i $id  [status]
+            exp_continue
+        }
+        -i $id
+        -re {\x24\x30\x30U[0-9 \.]+[\r\n]} {
+            parray expect_out
+            setValue $expect_out(0,string)
+            exp_continue
+        }
+        -i $control
+        -re {[\r\n]} {
+            userCmd $expect_out(buffer)
+            exp_continue
+        }
+        timeout {
+            send_user "timeout\n"
+        }
+    }
+}
+
+spawn [pwd]/node.exp
+
+input $spawn_id $user_spawn_id
+
+

@@ -1,0 +1,76 @@
+#!/usr/bin/expect -f
+
+set ::analog [list 0 0 0 0 0 0 0 0 0 0 0 0]
+set ::digital [list 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+
+proc updateStatus {
+                   id
+               } {
+    send -i $id "\$00I\r"
+    after 6000 updateStatus $id
+}
+
+proc setTmp {
+             id
+             temp
+         } {
+    set cmd "\$00U "
+    append cmd [format "%06.1f " $temp]
+    append cmd "0000.0\r"
+    send -i $id $cmd
+}
+
+set ::temperature 20.0
+
+proc updateTemp {
+                id
+           } {
+    setTmp $id $::temperature
+    set ::temperature [expr $::temperature + 0.4]
+    after 20000 updateTemp $id
+}
+
+proc setValue {
+               line
+           } {
+    set values [split [string trim $line] " "]
+    send_user ":: $values ::\n"
+    set nominal [lindex $values 1]
+    set ::analog [lreplace $::analog 0 0 $nominal]
+    send_user "analog: $::analog\n"
+    updateTmp
+}
+
+proc saveStatus {
+                 line
+             } {
+    set fields [split [string trim $line] " "]
+    set ::analog [lrange $fields 0 end-1]
+    set ::digital [split [lindex $fields end] {}]
+}
+
+proc input {
+            id
+        } {
+    set timeout -1
+    expect {
+        -i $id
+        -re {[0-9 \.]+[\r\n]} {
+            saveStatus $expect_out(buffer)
+            exp_continue
+        }
+        -re {[\r\n]} {
+            send_user "Tyhjaa"
+            exp_continue
+        }
+        timeout {
+            send_user "timeout\n"
+        }
+    }
+}
+
+updateStatus $user_spawn_id
+updateTemp $user_spawn_id
+input $user_spawn_id
+
+
